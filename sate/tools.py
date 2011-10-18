@@ -317,6 +317,53 @@ class PrankAligner(Aligner):
                                         delete_temps=kwargs.get('delete_temps', self.delete_temps))
 
 
+class CobaltAligner(Aligner):
+    section_name = 'cobalt aligner'
+    url = 'http://www.ncbi.nlm.nih.gov/tools/cobalt/'    
+    
+    def __init__(self, temp_fs, **kwargs):
+        Aligner.__init__(self, 'cobalt', temp_fs, **kwargs)
+        self.dbPath = kwargs['db_path']
+        #if self.dbPath is None or self.dbPath == '':
+        #    self.dbPath="%s/db/cdd_clique_0.75" %os.getcwd()
+
+    def create_job(self, alignment, guide_tree=None, **kwargs):
+        job_id = kwargs.get('context_str', '') + '_cobalt'
+        if alignment.get_num_taxa() == 1:
+            return FakeJob(alignment, context_str=job_id)
+        scratch_dir, seqfn, alignedfn = self._prepare_input(alignment, **kwargs)
+        aligned_fileobj = open_with_intermediates(alignedfn, 'w')
+        
+        invoc = [self.exe, '-i=%s' % seqfn]
+        if self.dbPath is not None and self.dbPath != '':
+            invoc.extend(['-rpsdb', self.dbPath])
+        else:
+            invoc.extend(['-norps','T'])
+        
+        dirs_to_delete = []
+        if kwargs.get('delete_temps', self.delete_temps):
+            dirs_to_delete.append(scratch_dir)
+
+        def cobalt_result_processor(to_close=aligned_fileobj,
+                                    fn=alignedfn,
+                                    datatype=alignment.datatype,
+                                    dirs_to_delete=dirs_to_delete,
+                                    temp_fs=self.temp_fs):
+            to_close.close()
+            return read_internal_alignment(fn=alignedfn, 
+                                           datatype=datatype,
+                                           dirs_to_delete=dirs_to_delete,
+                                           temp_fs=temp_fs)
+
+        job = DispatchableJob(invoc,
+                              result_processor=cobalt_result_processor,
+                              cwd=scratch_dir,
+                              stdout=aligned_fileobj,
+                              context_str=job_id)
+        
+        return job
+    
+
 class FakeAligner(Aligner):
     "Simply returns the input data -- I hope that it is aligned!"
     section_name = 'fakealigner'
@@ -447,6 +494,51 @@ class MuscleMerger (Merger):
                                          scratch_dir=scratch_dir,
                                          job_id=job_id,
                                          delete_temps=kwargs.get('delete_temps', self.delete_temps))
+
+class CobaltMerger (Merger):
+    section_name = 'cobalt merger'
+    url = "http://www.ncbi.nlm.nih.gov/tools/cobalt"
+
+    def __init__(self, temp_fs, **kwargs):
+        Merger.__init__(self, 'cobalt', temp_fs, **kwargs)
+        self.dbPath = kwargs['db_path']        
+
+    def create_job(self, alignment1, alignment2, **kwargs):
+        scratch_dir, seqfn1, seqfn2, outfn = self._prepare_input(alignment1, alignment2, **kwargs)
+
+        out_fileobj = open_with_intermediates(outfn, 'w')
+        #cobalt -in_msa1 msa1.fa -in_msa2 msa2.fa -rpsdb cdd_clique_0.75
+        invoc = [self.exe, '-in_msa1', seqfn1, '-in_msa2', seqfn2]
+        if self.dbPath is not None and self.dbPath != '':
+            invoc.extend(['-rpsdb', self.dbPath])
+        else:
+            invoc.extend(['-norps','T'])
+
+        job_id = kwargs.get('context_str', '') + '_cobalt'
+
+        dirs_to_delete = []        
+        delete_temps=kwargs.get('delete_temps', self.delete_temps)
+        if delete_temps:
+            dirs_to_delete = [scratch_dir]
+        # create a results processor to read the alignment file
+        def cobalt_result_processor(to_close=out_fileobj,
+                                    fn=outfn,
+                                    datatype=alignment1.datatype,
+                                    dirs_to_delete=dirs_to_delete,
+                                    temp_fs=self.temp_fs):
+            to_close.close()
+            return read_internal_alignment(fn, 
+                                               datatype=datatype,
+                                               dirs_to_delete=dirs_to_delete,
+                                               temp_fs=self.temp_fs)
+
+        job = DispatchableJob(invoc, 
+                              result_processor=cobalt_result_processor,  
+                              cwd=scratch_dir,
+                              stdout=out_fileobj, 
+                              context_str=job_id)
+        return job
+
 
 class OpalMerger (Merger):
     section_name = "opal merger"
@@ -736,12 +828,12 @@ class Raxml(TreeEstimator):
         return job
 
 if GLOBAL_DEBUG:
-    AlignerClasses = (Clustalw2Aligner, MafftAligner, PrankAligner, OpalAligner, PadAligner, FakeAligner, CustomAligner)
-    MergerClasses = (MuscleMerger, OpalMerger, PadMerger, FakeMerger, CustomMerger)
+    AlignerClasses = (Clustalw2Aligner, MafftAligner, PrankAligner, OpalAligner, PadAligner, FakeAligner, CobaltAligner, CustomAligner)
+    MergerClasses = (MuscleMerger, OpalMerger, PadMerger,  CobaltMerger, FakeMerger, CustomMerger)
     TreeEstimatorClasses = (FastTree, Randtree, Raxml, FakeTreeEstimator, CustomTreeEstimator)
 else:
-    AlignerClasses = (Clustalw2Aligner, MafftAligner, PrankAligner, OpalAligner, CustomAligner)
-    MergerClasses = (MuscleMerger, OpalMerger, CustomMerger)
+    AlignerClasses = (Clustalw2Aligner, MafftAligner, PrankAligner, OpalAligner, CobaltAligner, CustomAligner)
+    MergerClasses = (MuscleMerger, OpalMerger, CobaltMerger, CustomMerger)
     TreeEstimatorClasses = (Raxml, FastTree, CustomTreeEstimator)
 
 def get_aligner_classes():

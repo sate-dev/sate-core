@@ -100,6 +100,8 @@ def get_configuration(configfile=None):
                     if new_path:
                         tool_name = tool_class.section_name.split()[0] # TODO: this (taking the first word) is a bad idea we can get clashes in _DEFAULT_TOOLS_PATH
                         getattr(cfg, tool_name).path = new_path
+                        #TODO: Should attributes other than path (for example
+                        #db_path for Cobalt) be also read from config file and set here? 
                 except:
                     ### TODO: wrap up in messaging system
                     sys.stderr.write("Section '%s' not found: using default settings instead.\n" % tool_class.section_name)

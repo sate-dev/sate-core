@@ -832,8 +832,8 @@ if GLOBAL_DEBUG:
     MergerClasses = (MuscleMerger, OpalMerger, PadMerger,  CobaltMerger, FakeMerger, CustomMerger)
     TreeEstimatorClasses = (FastTree, Randtree, Raxml, FakeTreeEstimator, CustomTreeEstimator)
 else:
-    AlignerClasses = (Clustalw2Aligner, MafftAligner, PrankAligner, OpalAligner, CobaltAligner, CustomAligner)
-    MergerClasses = (MuscleMerger, OpalMerger, CobaltMerger, CustomMerger)
+    AlignerClasses = (Clustalw2Aligner, MafftAligner, PrankAligner, OpalAligner, CustomAligner)
+    MergerClasses = (MuscleMerger, OpalMerger, CustomMerger)
     TreeEstimatorClasses = (Raxml, FastTree, CustomTreeEstimator)
 
 def get_aligner_classes():

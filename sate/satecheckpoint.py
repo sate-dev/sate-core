@@ -45,6 +45,8 @@ class CheckPointManager:
         self.is_recovering = False 
     
     def save_checkpoint(self):
+        if not os.path.exists(self._ckcpt_path):
+            os.makedirs(self._ckcpt_path) 
         assert os.path.exists(self._ckcpt_path)
         info_path = os.path.join(self._ckcpt_path,"info")        
         pickle.dump(self.checkpoint_state, open(info_path,"w"))
@@ -57,8 +59,7 @@ class CheckPointManager:
         
     def initiate_ckpt_state(self,ckpt_path):
         self._ckcpt_path = ckpt_path
-        if not os.path.exists(self._ckcpt_path):
-            os.makedirs(self._ckcpt_path)        
+        if not os.path.exists(self._ckcpt_path):       
             self.checkpoint_state = CheckPointState()
         else:                            
             self.restore_checkpoint()

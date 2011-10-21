@@ -163,7 +163,26 @@ class TempFS(object):
         finally:
              self._directories_created_lock.release()
 
+    def recover_top_level_temp(self, path):
+        '''re-stores the path to the top-level temporary
+        directory after a restore from a checkpoint
 
+        The canonical file path is returned.
+
+        '''
+        assert(self._top_level_temp is None)
+        assert(self._top_level_temp_real is None)
+        r_parent = os.path.realpath(path)
+        if not os.path.exists(r_parent):
+            raise OSError("Path does not exist: '%s'" % r_parent)
+        if not os.path.isdir(r_parent):
+            raise OSError("Path is not a directory: '%s'" % r_parent)
+        
+        self._top_level_temp = path
+        self._top_level_temp_real = os.path.realpath(self._top_level_temp)
+        self._directories_created.add(self._top_level_temp_real)
+        return self._top_level_temp_real
+    
     def create_temp_subdir(self, parent, prefix='temp'):
         '''Creates (and stores the path to) a temporary directory under `parent`
 
@@ -317,6 +336,9 @@ class SateProducts(object):
 
         # create working output streams
         self.setup()
+    def get_output_directory(self):
+        return self._output_directory        
+    output_directory = property(get_output_directory)
 
     def _compose_stream_attr(self, stream_name):
         return stream_name + "_stream"

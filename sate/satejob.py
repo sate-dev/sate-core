@@ -29,6 +29,7 @@ import sys
 import copy
 from threading import Lock
 from sate import get_logger
+from sate.satecheckpoint import checkpoint_manager
 _LOG = get_logger(__name__)
 
 from sate.treeholder import TreeHolder
@@ -135,7 +136,44 @@ class SateJob (TreeHolder):
 
         self._reset_current_run_settings()
         self.killed = False
-
+        
+        if checkpoint_manager.is_recovering:
+            self._update_state_from_checkpoint()
+            
+    def _update_state_from_checkpoint(self):
+        state = checkpoint_manager.checkpoint_state
+        
+        self.current_iteration = state.curr_iter
+        self.num_iter_since_imp = state.num_iter_since_imp
+        self.is_stuck_in_blind = state.is_stuck_in_blind
+        self.switch_to_blind_iter = state.switch_to_blind_iter
+        self._blindmode_trigger = state.blindmode_trigger
+        
+        self.best_tree_str = state.best_tree
+        self.best_score = state.best_score
+        self.best_multilocus_dataset = state.best_dataset
+        
+        self.score = state.last_score
+        self.tree = state.last_tree
+        self.multilocus_dataset = state.last_dataset
+        
+    def _update_ckpt_state(self):
+        state = checkpoint_manager.checkpoint_state
+        
+        state.curr_iter = self.current_iteration 
+        state.num_iter_since_imp = self.num_iter_since_imp 
+        state.num_iter_since_imp = self.is_stuck_in_blind
+        state.switch_to_blind_iter = self.switch_to_blind_iter
+        state.blindmode_trigger = self._blindmode_trigger
+        
+        state.best_tree = self.best_tree_str
+        state.best_score = self.best_score
+        state.best_dataset = self.best_multilocus_dataset
+        
+        state.last_score = self.score
+        state.last_tree = self.tree
+        state.last_dataset = self.multilocus_dataset                      
+        
     def _reset_current_run_settings(self):
         self.start_time = None
         self.current_iteration = 0
@@ -295,12 +333,12 @@ class SateJob (TreeHolder):
         assert(os.path.exists(tmp_dir_par))
 
         self._reset_current_run_settings()
+        if checkpoint_manager.is_recovering:
+            self._update_state_from_checkpoint()
         self._reset_jobs()
 
         self.start_time = time.time()
         self.last_improvement_time = self.start_time
-
-        num_non_update_iter = 0
 
         configuration = self.configuration()
         # Here we check if the max_subproblem_frac is more stringent than max_subproblem_size
@@ -311,44 +349,68 @@ class SateJob (TreeHolder):
         delete_iteration_temps = not self.keep_iteration_temporaries
         delete_realignment_temps = delete_iteration_temps or (not self.keep_realignment_temporaries)
         configuration['delete_temps'] = delete_realignment_temps
-
+           
         while self._keep_iterating():
+            if checkpoint_manager.is_checkpointing() and not checkpoint_manager.is_recovering:
+                self._update_ckpt_state()
+                checkpoint_manager.checkpoint_state.new_dataset = None
+                checkpoint_manager.save_checkpoint()
             record_timestamp(os.path.join(tmp_dir_par, 'start_sateiter_timestamp.txt'))
 
-            # create a subdirectory for this iteration
             curr_iter_tmp_dir_par = os.path.join(tmp_dir_par, 'step' + str(self.current_iteration))
-            curr_iter_tmp_dir_par = self.sate_team.temp_fs.create_subdir(curr_iter_tmp_dir_par)
-            _LOG.debug('directory %s created' % curr_iter_tmp_dir_par)
+            # If checkpoint is being recovered, 
+            # and if the previous termination was not after alignment step, 
+            # rename the step directory (as a backup)
+            # TODO: remove items from the old stepXXX directory if needed            
+            if checkpoint_manager.is_recovering and checkpoint_manager.checkpoint_state.new_dataset is None:
+                idx = 0
+                while os.path.exists("%s_back-%d" %(curr_iter_tmp_dir_par,idx)): idx += 1                                        
+                os.rename(curr_iter_tmp_dir_par, "%s_back-%d" %(curr_iter_tmp_dir_par,idx))
+                checkpoint_manager.is_recovering = False
+            if not checkpoint_manager.is_recovering:
+                # create a subdirectory for this iteration            
+                curr_iter_tmp_dir_par = self.sate_team.temp_fs.create_subdir(curr_iter_tmp_dir_par)
+                _LOG.debug('directory %s created' % curr_iter_tmp_dir_par)
             break_strategy_index = 0
             this_iter_score_improved = False
 
-            while True:
+            while True:                
                 break_strategy =  self._get_break_strategy(break_strategy_index)
                 if not bool(break_strategy):
                     break
                 context_str = "iter%d-%s" % (self.current_iteration, break_strategy)
                 # create a subdirectory for this iteration/break_strategy
                 curr_tmp_dir_par = os.path.join(curr_iter_tmp_dir_par, break_strategy)
-                curr_tmp_dir_par = self.sate_team.temp_fs.create_subdir(curr_tmp_dir_par)
-                record_timestamp(os.path.join(curr_tmp_dir_par, 'start_align_timestamp.txt'))
-                # Align (with decomposition...)
-                self.status('Step %d. Realigning with decomposition strategy set to %s' % (self.current_iteration, break_strategy))
-                if self.killed:
-                    raise RuntimeError("SATe Job killed")
-                tree_for_aligner = self.get_tree_copy()
-                tree_for_aligner = self.get_tree_copy()
-                aligner = SateAlignerJob(multilocus_dataset=self.multilocus_dataset,
-                                         sate_team=self.sate_team,
-                                         tree=tree_for_aligner,
-                                         tmp_dir_par=curr_tmp_dir_par,
-                                         **configuration)
-                self.sate_aligner_job = aligner
-                aligner.launch_alignment(break_strategy=break_strategy,
-                                         context_str=context_str)
-
-                new_multilocus_dataset = aligner.get_results()
-                self.sate_aligner_job = None
-                del aligner
+                # TODO: If recovered from checkpointing, 
+                # it will not remove it from temp dir. Fix this!
+                if checkpoint_manager.is_recovering:
+                    new_multilocus_dataset = checkpoint_manager.checkpoint_state.new_dataset
+                    checkpoint_manager.is_recovering = False
+                else:
+                    curr_tmp_dir_par = self.sate_team.temp_fs.create_subdir(curr_tmp_dir_par)               
+                    record_timestamp(os.path.join(curr_tmp_dir_par, 'start_align_timestamp.txt'))
+                    # Align (with decomposition...)
+                    self.status('Step %d. Realigning with decomposition strategy set to %s' % (self.current_iteration, break_strategy))
+                    if self.killed:
+                        raise RuntimeError("SATe Job killed")
+                    tree_for_aligner = self.get_tree_copy()
+                    tree_for_aligner = self.get_tree_copy()
+                    aligner = SateAlignerJob(multilocus_dataset=self.multilocus_dataset,
+                                             sate_team=self.sate_team,
+                                             tree=tree_for_aligner,
+                                             tmp_dir_par=curr_tmp_dir_par,
+                                             **configuration)
+                    self.sate_aligner_job = aligner
+                    aligner.launch_alignment(break_strategy=break_strategy,
+                                             context_str=context_str)
+    
+                    new_multilocus_dataset = aligner.get_results()
+                    if checkpoint_manager.is_checkpointing() and not checkpoint_manager.is_recovering:
+                        self._update_ckpt_state()
+                        checkpoint_manager.checkpoint_state.new_dataset = new_multilocus_dataset
+                        checkpoint_manager.save_checkpoint()
+                    self.sate_aligner_job = None
+                    del aligner
 
 
                 record_timestamp(os.path.join(curr_tmp_dir_par, 'start_treeinference_timestamp.txt'))

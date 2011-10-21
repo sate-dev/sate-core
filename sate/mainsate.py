@@ -30,7 +30,8 @@ import glob
 import optparse
 import sate
 
-from sate import PROGRAM_NAME, PROGRAM_VERSION, PROGRAM_LONG_DESCRIPTION, get_logger, set_timing_log_filepath, TIMING_LOG, MESSENGER
+from sate import PROGRAM_NAME, PROGRAM_VERSION, PROGRAM_LONG_DESCRIPTION, get_logger, set_timing_log_filepath, TIMING_LOG, MESSENGER,\
+    satecheckpoint
 from sate.alignment import Alignment, SequenceDataset, MultiLocusDataset
 from sate.configure import get_configuration, get_input_source_directory
 from sate.tree import PhylogeneticTree
@@ -41,6 +42,7 @@ from sate.scheduler import start_worker, jobq
 from sate.utility import IndentedHelpFormatterWithNL
 from sate.filemgr import open_with_intermediates
 from sate import filemgr
+from sate.satecheckpoint import checkpoint_manager
 
 _RunningJobs = None
 
@@ -71,8 +73,6 @@ def finish_sate_execution(sate_team,
                           multilocus_dataset,
                           sate_products):
     global _RunningJobs
-    # get the RAxML model #TODO: this should check for the tree_estimator.  Currently we only support raxml, so this works...
-    model = user_config.raxml.model
 
     options = user_config.commandline
 
@@ -120,12 +120,26 @@ def finish_sate_execution(sate_team,
         prev_signals.append((sig, prev_handler))
 
     try:
-        if tree_file:
+        starting_tree_str = None                
+          
+        if checkpoint_manager.is_recovering and checkpoint_manager.checkpoint_state.curr_iter != "init":
+            starting_tree_str = checkpoint_manager.checkpoint_state.last_tree
+            if isinstance(starting_tree_str, PhylogeneticTree):
+                starting_tree_str = starting_tree_str.compose_newick()
+            score = None
+        elif tree_file:
             # getting the newick string here will allow us to get a string that is in terms of the correct taxon labels
-            starting_tree_str = starting_tree.compose_newick()
-        else:
-            MESSENGER.send_info("Performing initial tree search to get starting tree...")
-            if not options.aligned:
+            starting_tree_str = starting_tree.compose_newick()            
+        else:            
+            if checkpoint_manager.is_recovering and checkpoint_manager.checkpoint_state.curr_iter == "init":
+                multilocus_dataset = checkpoint_manager.checkpoint_state.new_dataset
+                init_tree_dir = os.path.join(temporaries_dir, 'init_tree')
+                idx = 0
+                while os.path.exists("%s_back-%d" %(init_tree_dir,idx)): idx += 1                                        
+                os.rename(init_tree_dir, "%s_back-%d" %(init_tree_dir,idx))
+                checkpoint_manager.is_recovering = False
+                MESSENGER.send_info("Initial alignment recovered from checkpoint files...")
+            elif not options.aligned:
                 MESSENGER.send_info("Performing initial alignment of the entire data matrix...")
                 init_aln_dir = os.path.join(temporaries_dir, 'init_aln')
                 init_aln_dir = sate_team.temp_fs.create_subdir(init_aln_dir)
@@ -143,6 +157,13 @@ def finish_sate_execution(sate_team,
                     new_alignment_list.append(new_alignment)
                 for locus_index, new_alignment in enumerate(new_alignment_list):
                     multilocus_dataset[locus_index] = new_alignment
+                    
+                if checkpoint_manager.is_checkpointing():
+                    state = checkpoint_manager.checkpoint_state 
+                    state.curr_iter = "init"
+                    checkpoint_manager.checkpoint_state.new_dataset = multilocus_dataset
+                    checkpoint_manager.save_checkpoint()
+                                        
                 if delete_aln_temps:
                     sate_team.temp_fs.remove_dir(init_aln_dir)
             else:
@@ -185,7 +206,8 @@ def finish_sate_execution(sate_team,
                     curr_timestamp=time.time())
 
         _RunningJobs = job
-        MESSENGER.send_info("Starting SATe algorithm on initial tree...")
+        if not checkpoint_manager.is_recovering:
+            MESSENGER.send_info("Starting SATe algorithm on initial tree...")
         job.run(tmp_dir_par=temporaries_dir)
         _RunningJobs = None
         job.multilocus_dataset.restore_taxon_names()
@@ -235,7 +257,11 @@ def run_sate_from_config(user_config, sate_products):
             datatype=user_config.commandline.datatype,
             missing=user_config.commandline.missing)
     cmdline_options = user_config.commandline
+    
 
+    checkpionts_base = os.path.join(sate_products.output_directory,"checkpoints")
+    if cmdline_options.checkpoint:   
+        checkpoint_manager.initiate_ckpt_state(checkpionts_base)
     ############################################################################
     # Create the safe directory for temporaries
     # The general form of the directory is
@@ -253,16 +279,30 @@ def run_sate_from_config(user_config, sate_products):
     sate_team = SateTeam(config=user_config)
 
     delete_dir = not cmdline_options.keeptemp
-
-    temporaries_dir = sate_team.temp_fs.create_top_level_temp(parent=par_dir, prefix='temp')
+    
+    if checkpoint_manager.is_recovering:        
+        MESSENGER.send_info("Recovering checkpoint from %s" % checkpionts_base)
+        tmp_dir = checkpoint_manager.checkpoint_state.tmp_root
+        temporaries_dir = sate_team.temp_fs.recover_top_level_temp(path=tmp_dir)                
+    else:
+        temporaries_dir = sate_team.temp_fs.create_top_level_temp(parent=par_dir, prefix='temp')
+        if checkpoint_manager.is_checkpointing():
+            checkpoint_manager.checkpoint_state.tmp_root = temporaries_dir
+        MESSENGER.send_info("Directory for temporary files created at %s" % temporaries_dir)
+                
     assert(os.path.exists(temporaries_dir))
     try:
-        MESSENGER.send_info("Directory for temporary files created at %s" % temporaries_dir)
         finish_sate_execution(sate_team=sate_team,
                               user_config=user_config,
                               temporaries_dir=temporaries_dir,
                               multilocus_dataset=multilocus_dataset,
                               sate_products=sate_products)
+        if checkpoint_manager.is_checkpointing():
+            try:
+                checkpoint_manager.remove_checkpoint_path()
+                MESSENGER.send_info("checkpoint directory removed: %s" % checkpionts_base)
+            except OSError:
+                MESSENGER.send_info("Could not remove checkpoint directory: %s" % checkpionts_base)        
     finally:
         if delete_dir:
             sate_team.temp_fs.remove_dir(temporaries_dir)

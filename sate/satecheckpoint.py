@@ -45,17 +45,12 @@ class CheckPointManager:
         self.is_recovering = False 
     
     def save_checkpoint(self):
-        if not os.path.exists(self._ckcpt_path):
-            os.makedirs(self._ckcpt_path) 
-        assert os.path.exists(self._ckcpt_path)
-        info_path = os.path.join(self._ckcpt_path,"info")        
-        pickle.dump(self.checkpoint_state, open(info_path,"w"))
+        #assert os.path.exists(self._ckcpt_path)
+        pickle.dump(self.checkpoint_state, open(self._ckcpt_path,"w"))
         
     def restore_checkpoint(self):
         assert os.path.exists(self._ckcpt_path)   
-        info_path = os.path.join(self._ckcpt_path,"info")
-        assert os.path.exists(info_path)
-        self.checkpoint_state = pickle.load(open(info_path))        
+        self.checkpoint_state = pickle.load(open(self._ckcpt_path))        
         
     def initiate_ckpt_state(self,ckpt_path):
         self._ckcpt_path = ckpt_path
@@ -69,8 +64,16 @@ class CheckPointManager:
         return self.checkpoint_state != None
 
     def remove_checkpoint_path(self):
-        shutil.rmtree(self._ckcpt_path) 
-    
+        os.remove(self._ckcpt_path) 
+   
+    def backup_temp_directory(self, path):
+        assert(os.path.exists(path))
+        idx = 0
+        while os.path.exists("%s_back-%d" %(path,idx)): idx += 1                                        
+        new_name = "%s_back-%d" %(path,idx)
+        os.rename(path, new_name)
+        return new_name
+ 
 checkpoint_manager = CheckPointManager()
 #def get_checkpoint_manager():
 #    if _checkpoint_manager is None:

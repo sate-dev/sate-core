@@ -134,9 +134,8 @@ def finish_sate_execution(sate_team,
             if checkpoint_manager.is_recovering and checkpoint_manager.checkpoint_state.curr_iter == "init":
                 multilocus_dataset = checkpoint_manager.checkpoint_state.new_dataset
                 init_tree_dir = os.path.join(temporaries_dir, 'init_tree')
-                idx = 0
-                while os.path.exists("%s_back-%d" %(init_tree_dir,idx)): idx += 1                                        
-                os.rename(init_tree_dir, "%s_back-%d" %(init_tree_dir,idx))
+                new_tmp = checkpoint_manager.backup_temp_directory(init_tree_dir)
+                MESSENGER.send_info("In recovering the checkpoint, a temp directory of an incomplete step was backed up to: %s" %new_tmp)
                 checkpoint_manager.is_recovering = False
                 MESSENGER.send_info("Initial alignment recovered from checkpoint files...")
             elif not options.aligned:
@@ -258,10 +257,9 @@ def run_sate_from_config(user_config, sate_products):
             missing=user_config.commandline.missing)
     cmdline_options = user_config.commandline
     
-
-    checkpionts_base = os.path.join(sate_products.output_directory,"checkpoints")
-    if cmdline_options.checkpoint:   
-        checkpoint_manager.initiate_ckpt_state(checkpionts_base)
+ 
+    if cmdline_options.checkpoint is not None:   
+        checkpoint_manager.initiate_ckpt_state(cmdline_options.checkpoint)
     ############################################################################
     # Create the safe directory for temporaries
     # The general form of the directory is
@@ -281,7 +279,7 @@ def run_sate_from_config(user_config, sate_products):
     delete_dir = not cmdline_options.keeptemp
     
     if checkpoint_manager.is_recovering:        
-        MESSENGER.send_info("Recovering checkpoint from %s" % checkpionts_base)
+        MESSENGER.send_info("Recovering checkpoint from %s" %cmdline_options.checkpoint)
         tmp_dir = checkpoint_manager.checkpoint_state.tmp_root
         temporaries_dir = sate_team.temp_fs.recover_top_level_temp(path=tmp_dir)                
     else:
@@ -300,9 +298,9 @@ def run_sate_from_config(user_config, sate_products):
         if checkpoint_manager.is_checkpointing():
             try:
                 checkpoint_manager.remove_checkpoint_path()
-                MESSENGER.send_info("checkpoint directory removed: %s" % checkpionts_base)
+                MESSENGER.send_info("checkpoint dump file removed: %s" %cmdline_options.checkpoint)
             except OSError:
-                MESSENGER.send_info("Could not remove checkpoint directory: %s" % checkpionts_base)        
+                MESSENGER.send_info("Could not remove checkpoint dump file: %s" %cmdline_options.checkpoint)        
     finally:
         if delete_dir:
             sate_team.temp_fs.remove_dir(temporaries_dir)

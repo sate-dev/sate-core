@@ -361,11 +361,9 @@ class SateJob (TreeHolder):
             # If checkpoint is being recovered, 
             # and if the previous termination was not after alignment step, 
             # rename the step directory (as a backup)
-            # TODO: remove items from the old stepXXX directory if needed            
+            # TODO: remove items from the old stepXXX directory if alignment temp is deleted          
             if checkpoint_manager.is_recovering and checkpoint_manager.checkpoint_state.new_dataset is None:
-                idx = 0
-                while os.path.exists("%s_back-%d" %(curr_iter_tmp_dir_par,idx)): idx += 1                                        
-                os.rename(curr_iter_tmp_dir_par, "%s_back-%d" %(curr_iter_tmp_dir_par,idx))
+                checkpoint_manager.backup_temp_directory(curr_iter_tmp_dir_par)
                 checkpoint_manager.is_recovering = False
             if not checkpoint_manager.is_recovering:
                 # create a subdirectory for this iteration            

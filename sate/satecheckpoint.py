@@ -6,6 +6,7 @@ Created on Oct 20, 2011
 import os
 import pickle
 import shutil
+import sys
 
 class CheckPointState(object):
     '''
@@ -46,7 +47,10 @@ class CheckPointManager:
     
     def save_checkpoint(self):
         #assert os.path.exists(self._ckcpt_path)
+        currenlimit = sys.getrecursionlimit()
+        sys.setrecursionlimit(100000)
         pickle.dump(self.checkpoint_state, open(self._ckcpt_path,"w"))
+        sys.setrecursionlimit(currenlimit)
         
     def restore_checkpoint(self):
         assert os.path.exists(self._ckcpt_path)   

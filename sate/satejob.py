@@ -149,6 +149,8 @@ class SateJob (TreeHolder):
         self.switch_to_blind_iter = state.switch_to_blind_iter
         self._blindmode_trigger = state.blindmode_trigger
         
+        self.switch_to_blind_timestamp = state.switch_to_blind_timestamp
+        
         self.best_tree_str = state.best_tree
         self.best_score = state.best_score
         self.best_multilocus_dataset = state.best_dataset
@@ -165,6 +167,8 @@ class SateJob (TreeHolder):
         state.num_iter_since_imp = self.is_stuck_in_blind
         state.switch_to_blind_iter = self.switch_to_blind_iter
         state.blindmode_trigger = self._blindmode_trigger
+        
+        state.switch_to_blind_timestamp = self.switch_to_blind_timestamp
         
         state.best_tree = self.best_tree_str
         state.best_score = self.best_score

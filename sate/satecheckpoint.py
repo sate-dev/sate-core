@@ -32,6 +32,11 @@ class CheckPointState(object):
         self.switch_to_blind_iter = None
         self.blindmode_trigger = None
         
+        # in theory we don't need time stuff, but this field
+        # seems to have been used as a flag to check whether 
+        # we are in blind mode 
+        self.switch_to_blind_timestamp = None
+        
         self.tmp_root = None
         
         self.new_dataset = None

@@ -117,6 +117,8 @@ class SateJob (TreeHolder):
         self.tree = tree
         self.score = None
         self.best_score = None
+        self.best_tree_str = None
+        self.best_multilocus_dataset = None
 
         self._tree_build_job = None
         self._sate_decomp_job = None

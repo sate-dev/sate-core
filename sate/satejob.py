@@ -160,6 +160,7 @@ class SateJob (TreeHolder):
         self.score = state.last_score
         self.tree = state.last_tree
         self.multilocus_dataset = state.last_dataset
+        self.dataset = state.last_dataset.dataset
         
     def _update_ckpt_state(self):
         state = checkpoint_manager.checkpoint_state

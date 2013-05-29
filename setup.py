@@ -166,7 +166,7 @@ if platform.system() != "Windows":
         if os.path.exists(dest_path) and os.path.islink(dest_path):
             real_dest = os.path.abspath(os.path.realpath(dest_path))
             if real_dest != os.path.abspath(os.path.realpath(src_path)):
-                msg = "ERROR: Symbolic link '%s' already exists, but points to different source: '%s'\n[Aborting]\n" % (dest_path, real_path)
+                msg = "ERROR: Symbolic link '%s' already exists, but points to different source: '%s'\n[Aborting]\n" % (dest_path, real_dest)
                 sys.exit(msg)
             else:
                 sys.stderr.write("Path already exists and is linked correctly.\n")
